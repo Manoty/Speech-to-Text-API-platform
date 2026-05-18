@@ -1,5 +1,5 @@
 """
-app/main.py — updated for Phase 3
+app/main.py
 """
 
 from contextlib import asynccontextmanager
