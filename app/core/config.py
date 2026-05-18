@@ -1,8 +1,5 @@
 """
-app/core/config.py
-
-WHY: Type-safe, validated, IDE-friendly config.
-     Fails loudly at startup if anything is missing or wrong.
+app/core/config.py — updated for Phase 3
 """
 
 from functools import lru_cache
@@ -48,6 +45,13 @@ class Settings(BaseSettings):
     storage_backend: Literal["local", "s3"] = "local"
     upload_dir: str = "./uploads"
     max_file_size_mb: int = 500
+
+    # S3 / MinIO
+    s3_endpoint_url: str | None = None           # None = AWS, set for MinIO
+    s3_access_key: str | None = None
+    s3_secret_key: str | None = None
+    s3_bucket: str = "stt-uploads"
+    s3_region: str = "us-east-1"
 
     # Whisper
     whisper_model_size: Literal["tiny", "base", "small", "medium", "large-v3"] = "base"
