@@ -1,5 +1,5 @@
 """
-app/domains/transcriptions/service.py
+app/domains/transcriptions/service.py — updated for Phase 3
 """
 
 import uuid
@@ -19,7 +19,8 @@ from app.domains.transcriptions.schemas import (
     TranscriptionJobResponse,
     TranscriptResponse,
 )
-from app.storage.local import ALLOWED_MIME_TYPES, generate_stored_filename, save_upload
+from app.storage.factory import get_delete_fn, get_filename_generator, get_save_fn
+from app.storage.local import ALLOWED_MIME_TYPES
 
 logger = get_logger(__name__)
 
@@ -35,22 +36,21 @@ class TranscriptionService:
         language: str | None = None,
         model_size: str | None = None,
     ) -> TranscriptionJobResponse:
-        # Validate MIME type
         if file.content_type not in ALLOWED_MIME_TYPES:
             raise InvalidFileTypeError(list(ALLOWED_MIME_TYPES))
 
-        # Read and validate size
         file_bytes = await file.read()
         if len(file_bytes) > settings.max_file_size_bytes:
             raise FileTooLargeError(settings.max_file_size_mb)
 
-        # Store file
-        stored_filename = generate_stored_filename(file.filename or "upload")
-        file_path = await save_upload(file_bytes, stored_filename)
+        generate_filename = get_filename_generator()
+        save_file = get_save_fn()
+
+        stored_filename = generate_filename(file.filename or "upload")
+        file_path = await save_file(file_bytes, stored_filename)
 
         effective_model = model_size or settings.whisper_model_size
 
-        # Save DB records
         uploaded_file = await self.repo.create_uploaded_file(
             user_id=user_id,
             original_filename=file.filename or "upload",
@@ -67,13 +67,13 @@ class TranscriptionService:
             language=language,
         )
 
-        # Enqueue Celery task
         from app.domains.transcriptions.tasks import transcribe_audio
         task = transcribe_audio.delay(
             job_id=str(job.id),
             file_path=file_path,
             language=language,
             model_size=effective_model,
+            user_id=str(user_id),       # ← new in Phase 3
         )
 
         await self.repo.update_job_status(
@@ -89,7 +89,6 @@ class TranscriptionService:
         job = await self.repo.get_job_by_id(job_id, user_id)
         if not job:
             raise NotFoundError("Transcription job")
-
         return JobDetailResponse(
             job=TranscriptionJobResponse.model_validate(job),
             transcript=TranscriptResponse.model_validate(job.transcript) if job.transcript else None,
