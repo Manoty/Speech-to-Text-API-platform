@@ -6,7 +6,7 @@ build-backend = "hatchling.build"
 name = "speech-to-text-platform"
 version = "0.1.0"
 description = "Production-grade Speech-to-Text API Platform"
-requires-python = ">=3.12"
+requires-python = ">=3.11"
 dependencies = [
     "fastapi>=0.115.0",
     "uvicorn[standard]>=0.30.0",
@@ -54,10 +54,13 @@ profile = "black"
 line_length = 88
 
 [tool.mypy]
-python_version = "3.12"
+python_version = "3.11"
 strict = true
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["app"]
