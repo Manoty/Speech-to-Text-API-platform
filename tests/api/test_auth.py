@@ -1,5 +1,5 @@
 import pytest
-from httpx import AsyncClient
+from httpx import AsyncClient # pyright: ignore[reportMissingImports]
 
 
 @pytest.mark.asyncio

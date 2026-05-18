@@ -1,8 +1,5 @@
 """
 app/core/dependencies.py
-
-FastAPI dependency injection. These are injected into route
-handlers via Depends(). Keeps routes thin and testable.
 """
 
 from typing import AsyncGenerator
@@ -21,7 +18,6 @@ bearer_scheme = HTTPBearer()
 
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
-    """Yield a database session, auto-close on exit."""
     async with AsyncSessionFactory() as session:
         try:
             yield session
@@ -35,7 +31,6 @@ async def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
     db: AsyncSession = Depends(get_db),
 ) -> User:
-    """Decode JWT and return the authenticated user."""
     payload = decode_token(credentials.credentials)
 
     if payload.get("type") != "access":
@@ -54,3 +49,12 @@ async def get_current_user(
         raise PermissionDeniedError("Account is inactive")
 
     return user
+
+
+async def get_admin_user(
+    current_user: User = Depends(get_current_user),
+) -> User:
+    """Require admin flag. Use this on all /admin/* routes."""
+    if not current_user.is_admin:
+        raise PermissionDeniedError("Admin access required")
+    return current_user
