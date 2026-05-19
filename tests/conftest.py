@@ -1,5 +1,5 @@
 """
-tests/conftest.py
+
 
 Shared test fixtures. Uses a separate test database.
 Each test gets a clean transaction that rolls back after.
@@ -15,9 +15,7 @@ from app.core.config import settings
 from app.db.base import Base
 from app.main import create_app
 
-TEST_DATABASE_URL = settings.database_url.replace(
-    f"/{settings.postgres_db}", "/stt_test"
-)
+TEST_DATABASE_URL = settings.database_url + "_test"
 
 engine_test = create_async_engine(TEST_DATABASE_URL, echo=False)
 TestSessionFactory = async_sessionmaker(engine_test, expire_on_commit=False)
