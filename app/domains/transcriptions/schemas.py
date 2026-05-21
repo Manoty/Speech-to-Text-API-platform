@@ -1,6 +1,6 @@
 """
-app/domains/transcriptions/schemas.py — updated for Phase 4
-Adds: segments, search results, export format
+app/domains/transcriptions/schemas.py — updated for Phase 6
+Adds: version fields, transcript history response
 """
 
 import uuid
@@ -42,6 +42,9 @@ class TranscriptResponse(BaseModel):
     processing_time_seconds: float | None
     word_count: int
     segments: list[dict[str, Any]] | None
+    version: int
+    is_current: bool
+    model_size: str
     created_at: datetime
 
 
@@ -50,6 +53,12 @@ class JobDetailResponse(BaseModel):
 
     job: TranscriptionJobResponse
     transcript: TranscriptResponse | None
+
+
+class TranscriptHistoryResponse(BaseModel):
+    job_id: uuid.UUID
+    versions: list[TranscriptResponse]
+    total_versions: int
 
 
 class PaginatedJobsResponse(BaseModel):
@@ -72,3 +81,8 @@ class SearchResponse(BaseModel):
     items: list[TranscriptSearchResult]
     total: int
     query: str
+
+
+class RetranscribeRequest(BaseModel):
+    model_size: str = "base"
+    language: str | None = None
