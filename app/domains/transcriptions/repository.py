@@ -1,6 +1,6 @@
 """
 app/domains/transcriptions/repository.py — updated for Phase 6
-Adds: version management, get_transcript_history
+Add version management, get_transcript_history
 """
 
 import uuid
