@@ -1,20 +1,17 @@
 """
-app/core/middleware.py
+app/core/middleware.py — updated for Phase 5
 
-Rate limiting via Redis sliding window counter.
-
-WHY sliding window vs fixed window?
-Fixed window allows 2x burst at window boundaries.
-Sliding window distributes requests evenly over time.
-
-Limits (configurable):
-- Authenticated users: 100 requests / 60 seconds
-- Upload endpoint: 10 uploads / 60 seconds (heavier resource)
+Added: RequestIDMiddleware
+Every request gets a UUID. Bound to structlog context so
+every log line carries request_id automatically.
+Also returned in response header X-Request-ID for client tracing.
 """
 
 import time
+import uuid
 
 import redis.asyncio as aioredis
+import structlog
 from fastapi import Request, status
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -24,14 +21,45 @@ from app.core.logging import get_logger
 
 logger = get_logger(__name__)
 
-# Stricter limits per route prefix
 ROUTE_LIMITS: dict[str, tuple[int, int]] = {
-    # (max_requests, window_seconds)
     "/api/v1/transcriptions/upload": (10, 60),
     "/api/v1/auth/login": (10, 60),
     "/api/v1/auth/register": (5, 60),
 }
 DEFAULT_LIMIT = (100, 60)
+
+
+class RequestIDMiddleware(BaseHTTPMiddleware):
+    """
+    Generates a unique request_id for every request.
+    Binds it to structlog context so all logs in the request carry it.
+    Returns it in X-Request-ID response header.
+    """
+
+    async def dispatch(self, request: Request, call_next):
+        request_id = str(uuid.uuid4())
+
+        # Bind to structlog context for this request
+        structlog.contextvars.clear_contextvars()
+        structlog.contextvars.bind_contextvars(
+            request_id=request_id,
+            method=request.method,
+            path=request.url.path,
+        )
+
+        start = time.perf_counter()
+        response = await call_next(request)
+        duration = time.perf_counter() - start
+
+        response.headers["X-Request-ID"] = request_id
+
+        logger.info(
+            "request_completed",
+            status_code=response.status_code,
+            duration_ms=round(duration * 1000, 2),
+        )
+
+        return response
 
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
@@ -40,13 +68,10 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         self.redis = aioredis.from_url(redis_url, decode_responses=True)
 
     async def dispatch(self, request: Request, call_next):
-        # Determine identifier: prefer user id from token, fallback to IP
         identifier = self._get_identifier(request)
         path = request.url.path
-
         max_requests, window = self._get_limit(path)
         key = f"rl:{identifier}:{path}"
-
         now = time.time()
         window_start = now - window
 
@@ -80,10 +105,13 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
     def _get_identifier(self, request: Request) -> str:
         auth = request.headers.get("Authorization", "")
         if auth.startswith("Bearer "):
-            # Use token suffix as identifier (not decoded, just fingerprinting)
             return f"token:{auth[-16:]}"
         forwarded = request.headers.get("X-Forwarded-For")
-        ip = forwarded.split(",")[0] if forwarded else (request.client.host if request.client else "unknown")
+        ip = (
+            forwarded.split(",")[0]
+            if forwarded
+            else (request.client.host if request.client else "unknown")
+        )
         return f"ip:{ip}"
 
     def _get_limit(self, path: str) -> tuple[int, int]:
