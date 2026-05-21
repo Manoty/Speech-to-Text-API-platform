@@ -1,11 +1,12 @@
 """
-app/domains/transcriptions/repository.py
+app/domains/transcriptions/repository.py — updated for Phase 4
+Adds: full-text search, segments storage
 """
 
 import uuid
 from math import ceil
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -80,8 +81,9 @@ class TranscriptionRepository:
         page_size: int = 20,
         status: JobStatus | None = None,
     ) -> tuple[list[TranscriptionJob], int]:
-        query = select(TranscriptionJob).where(TranscriptionJob.user_id == user_id)
-
+        query = select(TranscriptionJob).where(
+            TranscriptionJob.user_id == user_id
+        )
         if status:
             query = query.where(TranscriptionJob.status == status)
 
@@ -94,7 +96,7 @@ class TranscriptionRepository:
         query = query.offset((page - 1) * page_size).limit(page_size)
 
         result = await self.db.execute(query)
-        return result.scalars().all(), total  # type: ignore[return-value]
+        return list(result.scalars().all()), total
 
     async def update_job_status(
         self,
@@ -122,8 +124,13 @@ class TranscriptionRepository:
         language_detected: str | None,
         duration_seconds: float | None,
         processing_time_seconds: float | None,
+        segments: list | None = None,
     ) -> Transcript:
         word_count = len(full_text.split()) if full_text else 0
+
+        # Build tsvector from full_text for search
+        search_vector = func.to_tsvector("english", full_text)
+
         t = Transcript(
             job_id=job_id,
             full_text=full_text,
@@ -131,7 +138,64 @@ class TranscriptionRepository:
             duration_seconds=duration_seconds,
             processing_time_seconds=processing_time_seconds,
             word_count=word_count,
+            segments=segments,
         )
         self.db.add(t)
         await self.db.flush()
+
+        # Update search vector after flush (we have the id now)
+        await self.db.execute(
+            text(
+                "UPDATE transcripts SET search_vector = to_tsvector('english', full_text) "
+                "WHERE id = :id"
+            ).bindparams(id=t.id)
+        )
+
         return t
+
+    async def search_transcripts(
+        self,
+        user_id: uuid.UUID,
+        query: str,
+        page: int = 1,
+        page_size: int = 20,
+    ) -> tuple[list[dict], int]:
+        """
+        Full-text search across user's transcripts using PostgreSQL tsvector.
+        Returns snippets via ts_headline.
+        """
+        ts_query = func.plainto_tsquery("english", query)
+
+        search_sql = text("""
+            SELECT
+                t.id as transcript_id,
+                tj.id as job_id,
+                ts_headline(
+                    'english',
+                    t.full_text,
+                    plainto_tsquery('english', :query),
+                    'MaxWords=35, MinWords=15, ShortWord=3,
+                     HighlightAll=false, MaxFragments=2'
+                ) as snippet,
+                t.language_detected,
+                t.created_at,
+                COUNT(*) OVER() as total_count
+            FROM transcripts t
+            JOIN transcription_jobs tj ON tj.id = t.job_id
+            WHERE tj.user_id = :user_id
+              AND t.search_vector @@ plainto_tsquery('english', :query)
+            ORDER BY ts_rank(t.search_vector, plainto_tsquery('english', :query)) DESC
+            LIMIT :limit OFFSET :offset
+        """).bindparams(
+            query=query,
+            user_id=user_id,
+            limit=page_size,
+            offset=(page - 1) * page_size,
+        )
+
+        result = await self.db.execute(search_sql)
+        rows = result.mappings().all()
+
+        total = rows[0]["total_count"] if rows else 0
+        items = [dict(row) for row in rows]
+        return items, total
