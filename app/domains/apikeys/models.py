@@ -1,36 +1,36 @@
 """
-app/domains/apikeys/schemas.py
+app/domains/apikeys/models.py
+
+API keys are stored as SHA-256 hashes — never plaintext.
+The raw key is shown ONCE on creation, then discarded.
+last_used_at helps users identify stale keys.
 """
 
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel, Field
+from sqlalchemy import Boolean, DateTime, ForeignKey, String
+from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+
+from app.db.base import Base
 
 
-class ApiKeyCreate(BaseModel):
-    name: str = Field(..., min_length=1, max_length=255)
+class ApiKey(Base):
+    __tablename__ = "api_keys"
 
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    key_hash: Mapped[str] = mapped_column(String(64), nullable=False, unique=True, index=True)
+    key_prefix: Mapped[str] = mapped_column(String(8), nullable=False)  # first 8 chars for display
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    last_used_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
-class ApiKeyCreatedResponse(BaseModel):
-    """
-    Returned ONCE on creation only.
-    raw_key is never stored — user must save it immediately.
-    """
-    id: uuid.UUID
-    name: str
-    key_prefix: str
-    raw_key: str
-    created_at: datetime
-
-
-class ApiKeyResponse(BaseModel):
-    """Safe response — no raw key, no hash."""
-    model_config = {"from_attributes": True}
-
-    id: uuid.UUID
-    name: str
-    key_prefix: str
-    is_active: bool
-    last_used_at: datetime | None
-    created_at: datetime
+    user: Mapped["User"] = relationship("User", lazy="noload")  # type: ignore[name-defined]
