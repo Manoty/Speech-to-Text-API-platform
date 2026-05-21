@@ -1,21 +1,21 @@
 """
-
-
-Shared test fixtures. Uses a separate test database.
-Each test gets a clean transaction that rolls back after.
+tests/conftest.py — updated for Phase 5
+Adds: cache mock fixture so tests don't hit real Redis
 """
 
-import asyncio
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from unittest.mock import AsyncMock, patch
 
 from app.core.config import settings
 from app.db.base import Base
 from app.main import create_app
 
-TEST_DATABASE_URL = settings.database_url + "_test"
+TEST_DATABASE_URL = settings.database_url.replace(
+    f"/{settings.postgres_db}", "/stt_test"
+)
 
 engine_test = create_async_engine(TEST_DATABASE_URL, echo=False)
 TestSessionFactory = async_sessionmaker(engine_test, expire_on_commit=False)
@@ -44,7 +44,16 @@ async def client(db) -> AsyncClient:
     app = create_app()
     app.dependency_overrides[get_db] = lambda: db
 
-    async with AsyncClient(
-        transport=ASGITransport(app=app), base_url="http://test"
-    ) as c:
-        yield c
+    # Mock cache so tests don't need Redis
+    with patch("app.core.cache.cache.get", new_callable=AsyncMock, return_value=None), \
+         patch("app.core.cache.cache.set", new_callable=AsyncMock), \
+         patch("app.core.cache.cache.delete", new_callable=AsyncMock), \
+         patch("app.core.cache.cache.get_transcript", new_callable=AsyncMock, return_value=None), \
+         patch("app.core.cache.cache.set_transcript", new_callable=AsyncMock), \
+         patch("app.core.cache.cache.invalidate_job", new_callable=AsyncMock), \
+         patch("app.core.cache.cache.invalidate_transcript", new_callable=AsyncMock):
+
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as c:
+            yield c
