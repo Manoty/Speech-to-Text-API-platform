@@ -1,23 +1,17 @@
 """
-app/domains/transcriptions/models.py — updated for Phase 4
+app/domains/transcriptions/models.py — updated for Phase 6
 
 Changes:
-- segments: JSONB column stores word-level timestamps
-- tsvector column for full-text search with GIN index
+- Transcript gains version + is_current fields
+- Enables re-transcription with version history
 """
 
 import enum
 import uuid
 
 from sqlalchemy import (
-    BigInteger,
-    Enum,
-    Float,
-    ForeignKey,
-    Index,
-    Integer,
-    String,
-    Text,
+    BigInteger, Boolean, Enum, Float, ForeignKey,
+    Index, Integer, String, Text,
 )
 from sqlalchemy.dialects.postgresql import JSONB, TSVECTOR, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -38,8 +32,7 @@ class UploadedFile(Base):
     user_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("users.id", ondelete="CASCADE"),
-        nullable=False,
-        index=True,
+        nullable=False, index=True,
     )
     original_filename: Mapped[str] = mapped_column(String(500), nullable=False)
     stored_filename: Mapped[str] = mapped_column(String(500), nullable=False)
@@ -57,14 +50,11 @@ class TranscriptionJob(Base):
     __tablename__ = "transcription_jobs"
 
     user_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("users.id", ondelete="CASCADE"),
-        nullable=False,
-        index=True,
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False, index=True,
     )
     file_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("uploaded_files.id", ondelete="CASCADE"),
+        UUID(as_uuid=True), ForeignKey("uploaded_files.id", ondelete="CASCADE"),
         nullable=False,
     )
     status: Mapped[JobStatus] = mapped_column(
@@ -75,13 +65,24 @@ class TranscriptionJob(Base):
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     celery_task_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
-    user: Mapped["User"] = relationship("User", back_populates="jobs", lazy="noload")  # type: ignore[name-defined]
+    user: Mapped["User"] = relationship(  # type: ignore[name-defined]
+        "User", back_populates="jobs", lazy="noload"
+    )
     uploaded_file: Mapped[UploadedFile] = relationship(
         "UploadedFile", back_populates="job", lazy="noload"
     )
-    transcript: Mapped["Transcript | None"] = relationship(
-        "Transcript", back_populates="job", lazy="noload"
+    transcripts: Mapped[list["Transcript"]] = relationship(
+        "Transcript", back_populates="job", lazy="noload",
+        order_by="Transcript.version.desc()",
     )
+
+    @property
+    def transcript(self) -> "Transcript | None":
+        """Returns the current (latest) transcript version."""
+        for t in self.transcripts:
+            if t.is_current:
+                return t
+        return self.transcripts[0] if self.transcripts else None
 
 
 class Transcript(Base):
@@ -89,27 +90,27 @@ class Transcript(Base):
 
     __table_args__ = (
         Index("ix_transcripts_search_vector", "search_vector", postgresql_using="gin"),
+        Index("ix_transcripts_job_current", "job_id", "is_current"),
     )
 
     job_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("transcription_jobs.id", ondelete="CASCADE"),
-        unique=True,
-        nullable=False,
+        nullable=False, index=True,
     )
     full_text: Mapped[str] = mapped_column(Text, nullable=False)
     language_detected: Mapped[str | None] = mapped_column(String(10), nullable=True)
     duration_seconds: Mapped[float | None] = mapped_column(Float, nullable=True)
     processing_time_seconds: Mapped[float | None] = mapped_column(Float, nullable=True)
     word_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-
-    # Word-level timestamps stored as JSONB
-    # Format: [{"start": 0.0, "end": 0.5, "word": "Hello", "probability": 0.99}, ...]
     segments: Mapped[list | None] = mapped_column(JSONB, nullable=True)
-
-    # PostgreSQL full-text search vector — populated via DB trigger or on save
     search_vector: Mapped[str | None] = mapped_column(TSVECTOR, nullable=True)
 
+    # Versioning fields
+    version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    is_current: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    model_size: Mapped[str] = mapped_column(String(20), nullable=False, default="base")
+
     job: Mapped[TranscriptionJob] = relationship(
-        "TranscriptionJob", back_populates="transcript", lazy="noload"
+        "TranscriptionJob", back_populates="transcripts", lazy="noload"
     )
