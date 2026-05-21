@@ -1,36 +1,28 @@
 """
-app/domains/apikeys/models.py
-
-API keys are stored as SHA-256 hashes — never plaintext.
-The raw key is shown ONCE on creation, then discarded.
-last_used_at helps users identify stale keys.
+app/domains/auth/models.py
 """
 
-import uuid
-from datetime import datetime
-
-from sqlalchemy import Boolean, DateTime, ForeignKey, String
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import Boolean, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
 
 
-class ApiKey(Base):
-    __tablename__ = "api_keys"
+class User(Base):
+    __tablename__ = "users"
 
-    user_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("users.id", ondelete="CASCADE"),
-        nullable=False,
-        index=True,
-    )
-    name: Mapped[str] = mapped_column(String(255), nullable=False)
-    key_hash: Mapped[str] = mapped_column(String(64), nullable=False, unique=True, index=True)
-    key_prefix: Mapped[str] = mapped_column(String(8), nullable=False)  # first 8 chars for display
+    email: Mapped[str] = mapped_column(String(255), unique=True, index=True, nullable=False)
+    hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
+    full_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
-    last_used_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
+    is_admin: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+
+    jobs: Mapped[list["TranscriptionJob"]] = relationship(  # type: ignore[name-defined]
+        "TranscriptionJob", back_populates="user", lazy="noload"
+    )
+    webhook_endpoints: Mapped[list["WebhookEndpoint"]] = relationship(  # type: ignore[name-defined]
+        "WebhookEndpoint", back_populates="user", lazy="noload"
     )
 
-    user: Mapped["User"] = relationship("User", lazy="noload")  # type: ignore[name-defined]
+    def __repr__(self) -> str:
+        return f"<User id={self.id} email={self.email}>"
