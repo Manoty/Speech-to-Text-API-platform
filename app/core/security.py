@@ -1,10 +1,11 @@
 """
-app/core/security.py
+app/core/security.py — updated for Phase 6
 
-JWT creation/verification and password hashing.
-Nothing HTTP-specific lives here — pure security utilities.
+Added:
+- mask_sensitive: redacts secrets from log output
+- validate_password_strength: rejects weak passwords
 """
-
+validate_password_strength
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -25,6 +26,21 @@ def hash_password(plain: str) -> str:
 
 def verify_password(plain: str, hashed: str) -> bool:
     return pwd_context.verify(plain, hashed)
+
+
+def validate_password_strength(password: str) -> list[str]:
+    """
+    Returns list of validation failures.
+    Empty list = password is strong enough.
+    """
+    errors = []
+    if len(password) < 8:
+        errors.append("Password must be at least 8 characters")
+    if not any(c.isupper() for c in password):
+        errors.append("Password must contain at least one uppercase letter")
+    if not any(c.isdigit() for c in password):
+        errors.append("Password must contain at least one number")
+    return errors
 
 
 # ── JWT ──────────────────────────────────────────────────────
@@ -55,3 +71,15 @@ def decode_token(token: str) -> dict[str, Any]:
         return payload
     except JWTError as e:
         raise InvalidTokenError() from e
+
+
+# ── Log safety ───────────────────────────────────────────────
+
+def mask_sensitive(value: str, visible_chars: int = 4) -> str:
+    """
+    Mask a sensitive string for safe logging.
+    e.g. mask_sensitive("stt_abc123xyz") → "stt_****xyz"
+    """
+    if len(value) <= visible_chars * 2:
+        return "*" * len(value)
+    return value[:visible_chars] + "*" * (len(value) - visible_chars * 2) + value[-visible_chars:]
