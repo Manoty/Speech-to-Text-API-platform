@@ -1,13 +1,22 @@
 """
-app/domains/transcriptions/schemas.py
+app/domains/transcriptions/schemas.py — updated for Phase 4
+Adds: segments, search results, export format
 """
 
 import uuid
 from datetime import datetime
+from typing import Any
 
 from pydantic import BaseModel
 
 from app.domains.transcriptions.models import JobStatus
+
+
+class WordSegment(BaseModel):
+    start: float
+    end: float
+    word: str
+    probability: float | None = None
 
 
 class TranscriptionJobResponse(BaseModel):
@@ -32,6 +41,7 @@ class TranscriptResponse(BaseModel):
     duration_seconds: float | None
     processing_time_seconds: float | None
     word_count: int
+    segments: list[dict[str, Any]] | None
     created_at: datetime
 
 
@@ -48,3 +58,17 @@ class PaginatedJobsResponse(BaseModel):
     page: int
     page_size: int
     pages: int
+
+
+class TranscriptSearchResult(BaseModel):
+    job_id: uuid.UUID
+    transcript_id: uuid.UUID
+    snippet: str
+    language_detected: str | None
+    created_at: datetime
+
+
+class SearchResponse(BaseModel):
+    items: list[TranscriptSearchResult]
+    total: int
+    query: str
