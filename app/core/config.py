@@ -1,5 +1,6 @@
 """
-app/core/config.py — updated for Phase 3
+app/core/config.py — updated for Phase 4
+Adds: email settings, quota settings, API key settings
 """
 
 from functools import lru_cache
@@ -47,7 +48,7 @@ class Settings(BaseSettings):
     max_file_size_mb: int = 500
 
     # S3 / MinIO
-    s3_endpoint_url: str | None = None           # None = AWS, set for MinIO
+    s3_endpoint_url: str | None = None
     s3_access_key: str | None = None
     s3_secret_key: str | None = None
     s3_bucket: str = "stt-uploads"
@@ -57,9 +58,26 @@ class Settings(BaseSettings):
     whisper_model_size: Literal["tiny", "base", "small", "medium", "large-v3"] = "base"
     whisper_device: Literal["cpu", "cuda"] = "cpu"
     whisper_compute_type: Literal["int8", "float16", "float32"] = "int8"
+    whisper_word_timestamps: bool = True
 
     # CORS
     allowed_origins: list[str] = ["http://localhost:3000"]
+
+    # Email (SMTP)
+    email_enabled: bool = False
+    smtp_host: str = "smtp.gmail.com"
+    smtp_port: int = 587
+    smtp_user: str = ""
+    smtp_password: str = ""
+    email_from: str = "noreply@stt-platform.com"
+    email_from_name: str = "STT Platform"
+
+    # Quotas
+    default_monthly_minutes: int = 300        # 5 hours free tier
+    quota_enforcement_enabled: bool = True
+
+    # API Keys
+    api_key_header_name: str = "X-API-Key"
 
     @computed_field  # type: ignore[misc]
     @property
