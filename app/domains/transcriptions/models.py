@@ -1,10 +1,9 @@
 """
-app/domains/transcriptions/models.py
+app/domains/transcriptions/models.py — updated for Phase 4
 
-Three models:
-- UploadedFile: raw audio/video stored on disk
-- TranscriptionJob: the async job with status tracking
-- Transcript: the final result once job completes
+Changes:
+- segments: JSONB column stores word-level timestamps
+- tsvector column for full-text search with GIN index
 """
 
 import enum
@@ -15,11 +14,12 @@ from sqlalchemy import (
     Enum,
     Float,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
 )
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import JSONB, TSVECTOR, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -36,7 +36,10 @@ class UploadedFile(Base):
     __tablename__ = "uploaded_files"
 
     user_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
     )
     original_filename: Mapped[str] = mapped_column(String(500), nullable=False)
     stored_filename: Mapped[str] = mapped_column(String(500), nullable=False)
@@ -54,15 +57,20 @@ class TranscriptionJob(Base):
     __tablename__ = "transcription_jobs"
 
     user_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
     )
     file_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("uploaded_files.id", ondelete="CASCADE"), nullable=False
+        UUID(as_uuid=True),
+        ForeignKey("uploaded_files.id", ondelete="CASCADE"),
+        nullable=False,
     )
     status: Mapped[JobStatus] = mapped_column(
         Enum(JobStatus), default=JobStatus.PENDING, nullable=False, index=True
     )
-    language: Mapped[str | None] = mapped_column(String(10), nullable=True)  # hint, e.g. "en"
+    language: Mapped[str | None] = mapped_column(String(10), nullable=True)
     model_size: Mapped[str] = mapped_column(String(20), nullable=False)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     celery_task_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
@@ -79,6 +87,10 @@ class TranscriptionJob(Base):
 class Transcript(Base):
     __tablename__ = "transcripts"
 
+    __table_args__ = (
+        Index("ix_transcripts_search_vector", "search_vector", postgresql_using="gin"),
+    )
+
     job_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("transcription_jobs.id", ondelete="CASCADE"),
@@ -90,6 +102,13 @@ class Transcript(Base):
     duration_seconds: Mapped[float | None] = mapped_column(Float, nullable=True)
     processing_time_seconds: Mapped[float | None] = mapped_column(Float, nullable=True)
     word_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+
+    # Word-level timestamps stored as JSONB
+    # Format: [{"start": 0.0, "end": 0.5, "word": "Hello", "probability": 0.99}, ...]
+    segments: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+
+    # PostgreSQL full-text search vector — populated via DB trigger or on save
+    search_vector: Mapped[str | None] = mapped_column(TSVECTOR, nullable=True)
 
     job: Mapped[TranscriptionJob] = relationship(
         "TranscriptionJob", back_populates="transcript", lazy="noload"
