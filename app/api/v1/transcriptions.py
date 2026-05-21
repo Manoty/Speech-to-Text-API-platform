@@ -16,6 +16,7 @@ from app.domains.transcriptions.schemas import (
     RetranscribeRequest, SearchResponse,
     TranscriptHistoryResponse, TranscriptionJobResponse,
 )
+
 from app.domains.transcriptions.service import TranscriptionService
 
 router = APIRouter(prefix="/transcriptions", tags=["transcriptions"])

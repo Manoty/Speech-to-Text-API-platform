@@ -1,10 +1,13 @@
 """
-app/api/v1/router.py — final Phase 4
+app/api/v1/router.py 
 """
 
 from fastapi import APIRouter
 
-from app.api.v1 import analytics, apikeys, auth, health, transcriptions, webhooks, ws
+from app.api.v1 import (
+    analytics, apikeys, auth, costs,
+    health, organizations, transcriptions, webhooks, ws,
+)
 
 api_router = APIRouter(prefix="/api/v1")
 
@@ -14,4 +17,6 @@ api_router.include_router(transcriptions.router)
 api_router.include_router(webhooks.router)
 api_router.include_router(analytics.router)
 api_router.include_router(apikeys.router)
+api_router.include_router(organizations.router)
+api_router.include_router(costs.router)
 api_router.include_router(ws.router)
